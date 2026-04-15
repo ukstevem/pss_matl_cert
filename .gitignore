@@ -1,0 +1,35 @@
+# Environment variables
+.env
+migration/.env
+
+# Heroku dump (binary)
+migration/f394ee7e-*
+
+# Extracted Heroku data (large, regenerable from dump)
+migration/heroku_data.sql
+migration/heroku_schema.sql
+
+# Split seed files (regenerable from transform.py)
+migration/002a_*.sql
+migration/002b_*.sql
+migration/003_tracking_*.sql
+migration/003_truncate_tracking.sql
+
+# Transform logs
+migration/transform_log.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
