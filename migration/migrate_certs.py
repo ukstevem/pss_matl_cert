@@ -141,14 +141,65 @@ def wait_for_cert_record(scan_id):
     return None
 
 
+def parse_po_ref(po_ref):
+    """Split 'MT001753-9310' into po_part and project_part.
+    Normalises: W005/w005 -> 0005, strips trailing slashes."""
+    if not po_ref:
+        return None, None
+    if "-" in po_ref:
+        parts = po_ref.split("-", 1)
+        proj = parts[1].strip("/")
+        # W005/w005 -> 0005
+        if proj.upper().startswith("W") and proj[1:].isdigit():
+            proj = proj[1:].zfill(4)
+        # Known aliases
+        if proj.upper() == "STOCK":
+            proj = "0006"
+        elif proj.upper() == "PB":
+            proj = None
+        return parts[0], proj
+    return po_ref, None
+
+
+def lookup_po(po_part):
+    """Match po_part against purchase_orders (try stripping leading zeros)."""
+    if not po_part:
+        return None
+    stripped = po_part.lstrip("0")
+    if not stripped:
+        return None
+    url = f"{SUPABASE_URL}/rest/v1/purchase_orders?po_number=eq.{stripped}&select=id,po_number&limit=1"
+    resp = requests.get(url, headers=supabase_headers())
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    # Also try unstripped
+    url = f"{SUPABASE_URL}/rest/v1/purchase_orders?po_number=eq.{po_part}&select=id,po_number&limit=1"
+    resp = requests.get(url, headers=supabase_headers())
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]
+    return None
+
+
 def update_cert(cert_id, description, po_ref):
     # Add item
     url = f"{SUPABASE_URL}/rest/v1/document_matl_cert_item"
     requests.post(url, json={"matl_cert_id": cert_id, "description": description}, headers=supabase_headers())
 
-    # Set legacy ref + confirm
+    # Parse and split PO ref
+    po_part, proj_part = parse_po_ref(po_ref)
+
+    # Build update
+    update = {"status": "confirmed", "legacy_ref": po_part, "legacy_project": proj_part}
+
+    # Try to auto-link PO
+    po = lookup_po(po_part)
+    if po:
+        update["po_id"] = po["id"]
+
     url = f"{SUPABASE_URL}/rest/v1/document_matl_cert?id=eq.{cert_id}"
-    requests.patch(url, json={"status": "confirmed", "legacy_ref": po_ref}, headers=supabase_headers())
+    requests.patch(url, json=update, headers=supabase_headers())
+
+    return po_part, proj_part, po
 
 
 def main():
@@ -236,8 +287,13 @@ def main():
             continue
         print(f" -> {cert_record['id']}")
 
-        # Step 5: Add item + set legacy ref + confirm
-        update_cert(cert_record["id"], description, po_ref)
+        # Step 5: Add item + set legacy ref/project + try PO match + confirm
+        po_part, proj_part, po = update_cert(cert_record["id"], description, po_ref)
+        parts = []
+        if po_part: parts.append(f"ref={po_part}")
+        if proj_part: parts.append(f"proj={proj_part}")
+        if po: parts.append(f"PO LINKED: {po['po_number']}")
+        print(f"  {' | '.join(parts) if parts else 'no PO ref'}")
         print(f"  OK")
         success += 1
         print()
