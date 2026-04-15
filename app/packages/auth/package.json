@@ -1,0 +1,1 @@
+{"name":"@platform/auth","version":"0.1.0","main":"./index.ts","peerDependencies":{"react":">=19","next":">=16"}}

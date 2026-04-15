@@ -1,6 +1,8 @@
 # Environment variables
 .env
+.env.local
 migration/.env
+app/.env.local
 
 # Heroku dump (binary)
 migration/f394ee7e-*

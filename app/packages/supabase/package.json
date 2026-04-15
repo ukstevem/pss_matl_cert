@@ -1,0 +1,1 @@
+{"name":"@platform/supabase","version":"0.1.0","main":"./index.ts","dependencies":{"@supabase/supabase-js":"^2.87.1"}}
