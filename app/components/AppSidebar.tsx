@@ -7,6 +7,7 @@ export function AppSidebar() {
   return (
     <Sidebar
       appLabel="Material Certs"
+      logoSrc="/matl-cert/pss-logo-reversed.png"
       navSections={[
         {
           heading: "Certificates",

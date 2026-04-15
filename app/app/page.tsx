@@ -10,6 +10,7 @@ interface CertRow {
   id: string;
   status: string;
   created_at: string;
+  legacy_ref: string | null;
   purchase_orders: {
     po_number: string;
     project_register_items: {
@@ -43,9 +44,9 @@ export default function CertLibrary() {
     const { data, error } = await supabase
       .from("document_matl_cert")
       .select(`
-        id, status, created_at,
+        id, status, created_at, legacy_ref,
         purchase_orders ( po_number, project_register_items ( projectnumber, item_seq ) ),
-        document_incoming_scan ( file_name, filed_path ),
+        document_incoming_scan ( file_name, filed_path, type_code, document_type ),
         document_matl_cert_item ( id, description )
       `)
       .order("created_at", { ascending: false })
@@ -79,9 +80,10 @@ export default function CertLibrary() {
     if (!search) return true;
     const s = search.toLowerCase();
     const po = c.purchase_orders?.po_number?.toLowerCase() || "";
+    const legacyPo = c.legacy_ref?.toLowerCase() || "";
     const desc = c.document_matl_cert_item?.[0]?.description?.toLowerCase() || "";
-    const file = c.document_incoming_scan?.file_name?.toLowerCase() || "";
-    return po.includes(s) || desc.includes(s) || file.includes(s);
+    const file = c.document_incoming_scan?.filed_path?.split("/").pop()?.toLowerCase() || "";
+    return po.includes(s) || legacyPo.includes(s) || desc.includes(s) || file.includes(s);
   });
 
   return (
@@ -125,7 +127,11 @@ export default function CertLibrary() {
                     {new Date(cert.created_at).toLocaleDateString("en-GB")}
                   </td>
                   <td className="py-3 px-4 font-mono">
-                    {cert.purchase_orders?.po_number || "—"}
+                    {cert.purchase_orders?.po_number || (
+                      cert.legacy_ref ? (
+                        <span className="text-gray-400" title="Legacy PO ref">{cert.legacy_ref}</span>
+                      ) : "—"
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     {cert.purchase_orders?.project_register_items
@@ -152,7 +158,7 @@ export default function CertLibrary() {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-gray-500 text-xs truncate max-w-[200px]">
-                    {cert.document_incoming_scan?.file_name || "—"}
+                    {cert.document_incoming_scan?.filed_path?.split("/").pop() || cert.document_incoming_scan?.file_name || "—"}
                   </td>
                 </tr>
               ))}
