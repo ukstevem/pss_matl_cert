@@ -13,8 +13,6 @@ export function AppSidebar() {
           heading: "Certificates",
           items: [
             { label: "Library", href: "/matl-cert/" },
-            { label: "Pending", href: "/matl-cert/pending/" },
-            { label: "Upload", href: "/matl-cert/upload/" },
           ],
         },
         {

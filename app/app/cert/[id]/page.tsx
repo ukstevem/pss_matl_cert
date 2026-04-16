@@ -4,65 +4,70 @@ import { useAuth } from "@platform/auth";
 import { PageHeader } from "@platform/ui";
 import { supabase } from "@platform/supabase";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
-interface PurchaseOrder {
-  id: string;
-  po_number: string;
-}
-
-interface CertItem {
-  id: string;
-  description: string | null;
-  po_line_item_id: string | null;
-  created_at: string;
-}
-
-interface TrackingRow {
-  id: string;
-  jobcard_number: number | null;
-  created_at: string;
-  matl_cert_item_id: string;
-}
+const DOC_SERVICE_URL =
+  process.env.NEXT_PUBLIC_DOC_SERVICE_URL || "http://10.0.0.74:3000";
 
 interface Cert {
   id: string;
   status: string;
   po_id: string | null;
   scan_id: string | null;
+  legacy_ref: string | null;
+  legacy_project: string | null;
   created_at: string;
   purchase_orders: { po_number: string } | null;
-  document_incoming_scan: { file_name: string; filed_path: string } | null;
+  document_incoming_scan: {
+    file_name: string;
+    filed_path: string;
+  } | null;
+}
+
+interface CertItem {
+  id: string;
+  description: string | null;
+  created_at: string;
+}
+
+interface CandidatePO {
+  id: string;
+  po_number: string;
+  created_at: string;
+  project_id: string | null;
+  item_seq: string | null;
+  suppliers: { name: string } | null;
+  po_metadata: { test_certificates_required: boolean }[];
 }
 
 export default function CertDetail() {
   const { user } = useAuth();
   const params = useParams();
+  const router = useRouter();
   const certId = params.id as string;
 
   const [cert, setCert] = useState<Cert | null>(null);
   const [items, setItems] = useState<CertItem[]>([]);
-  const [tracking, setTracking] = useState<TrackingRow[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [candidates, setCandidates] = useState<CandidatePO[]>([]);
+  const [allPOs, setAllPOs] = useState<{ id: string; po_number: string }[]>([]);
+  const [showAllPOs, setShowAllPOs] = useState(false);
   const [selectedPo, setSelectedPo] = useState("");
-  const [newItemDesc, setNewItemDesc] = useState("");
-  const [newJobcard, setNewJobcard] = useState("");
-  const [selectedItemForTracking, setSelectedItemForTracking] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !certId) return;
     loadCert();
-    loadPurchaseOrders();
   }, [user, certId]);
 
   async function loadCert() {
     setLoading(true);
 
-    const [certRes, itemsRes, trackingRes] = await Promise.all([
+    const [certRes, itemsRes] = await Promise.all([
       supabase
         .from("document_matl_cert")
-        .select("*, purchase_orders ( po_number ), document_incoming_scan ( file_name, filed_path )")
+        .select(
+          "*, purchase_orders ( po_number ), document_incoming_scan ( file_name, filed_path )"
+        )
         .eq("id", certId)
         .single(),
       supabase
@@ -70,83 +75,71 @@ export default function CertDetail() {
         .select("*")
         .eq("matl_cert_id", certId)
         .order("created_at"),
-      supabase
-        .from("document_matl_cert_tracking")
-        .select("*")
-        .in(
-          "matl_cert_item_id",
-          // We'll filter after loading items
-          []
-        ),
     ]);
 
     if (certRes.data) {
       setCert(certRes.data as unknown as Cert);
-      setSelectedPo(certRes.data.po_id || "");
-    }
-    if (itemsRes.data) {
-      setItems(itemsRes.data);
-      // Now load tracking for these items
-      const itemIds = itemsRes.data.map((i: CertItem) => i.id);
-      if (itemIds.length > 0) {
-        const { data: trackData } = await supabase
-          .from("document_matl_cert_tracking")
-          .select("*")
-          .in("matl_cert_item_id", itemIds)
-          .order("created_at");
-        if (trackData) setTracking(trackData);
+      if (certRes.data.status === "pending") {
+        loadCandidates();
       }
     }
+    if (itemsRes.data) setItems(itemsRes.data);
     setLoading(false);
   }
 
-  async function loadPurchaseOrders() {
+  async function loadCandidates() {
+    // Get POs from last 2 weeks where test_certificates_required = true
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+    const { data } = await supabase
+      .from("purchase_orders")
+      .select(
+        `
+        id, po_number, created_at, project_id, item_seq,
+        suppliers ( name ),
+        po_metadata ( test_certificates_required )
+      `
+      )
+      .gte("created_at", twoWeeksAgo.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (data) {
+      // Filter to only those with test_certificates_required
+      const filtered = (data as unknown as CandidatePO[]).filter((po) =>
+        po.po_metadata?.some((m) => m.test_certificates_required === true)
+      );
+      setCandidates(filtered);
+    }
+  }
+
+  async function loadAllPOs() {
     const { data } = await supabase
       .from("purchase_orders")
       .select("id, po_number")
       .order("po_number", { ascending: false })
       .limit(500);
-    if (data) setPurchaseOrders(data);
+    if (data) setAllPOs(data);
+    setShowAllPOs(true);
   }
 
-  async function assignPo() {
-    if (!selectedPo || !certId) return;
+  async function assignPo(poId: string) {
     await supabase
       .from("document_matl_cert")
-      .update({ po_id: selectedPo })
+      .update({ po_id: poId, status: "confirmed" })
       .eq("id", certId);
     loadCert();
   }
 
-  async function confirmCert() {
-    await supabase
-      .from("document_matl_cert")
-      .update({ status: "confirmed" })
-      .eq("id", certId);
-    loadCert();
+  async function assignFromDropdown() {
+    if (!selectedPo) return;
+    await assignPo(selectedPo);
   }
 
-  async function addItem() {
-    if (!newItemDesc.trim()) return;
-    await supabase.from("document_matl_cert_item").insert({
-      matl_cert_id: certId,
-      description: newItemDesc.trim(),
-    });
-    setNewItemDesc("");
-    loadCert();
-  }
-
-  async function addTracking() {
-    if (!selectedItemForTracking || !newJobcard) return;
-    const jc = parseInt(newJobcard);
-    if (isNaN(jc) || jc < 1000 || jc > 9999) return;
-    await supabase.from("document_matl_cert_tracking").insert({
-      matl_cert_item_id: selectedItemForTracking,
-      jobcard_number: jc,
-    });
-    setNewJobcard("");
-    loadCert();
-  }
+  const pdfUrl = cert?.document_incoming_scan?.filed_path
+    ? `${DOC_SERVICE_URL}${cert.document_incoming_scan.filed_path}`
+    : null;
 
   if (loading || !cert) {
     return (
@@ -156,144 +149,207 @@ export default function CertDetail() {
     );
   }
 
-  return (
-    <div className="p-6 max-w-4xl mx-auto space-y-8">
-      <PageHeader title="Certificate Detail" />
+  // CONFIRMED VIEW — full PDF + metadata
+  if (cert.status === "confirmed") {
+    return (
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <PageHeader title="Material Certificate" />
 
-      {/* Cert info */}
-      <div className="bg-white border rounded-lg p-6 space-y-4">
-        <div className="flex justify-between items-start">
+        <div className="grid grid-cols-3 gap-4 text-sm">
           <div>
-            <p className="text-sm text-gray-500">Created {new Date(cert.created_at).toLocaleDateString("en-GB")}</p>
-            <span
-              className={`inline-block mt-1 px-2 py-1 rounded text-xs font-medium ${
-                cert.status === "confirmed" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
-              }`}
-            >
-              {cert.status}
-            </span>
+            <span className="text-gray-500">PO Number</span>
+            <p className="font-mono font-medium">
+              {cert.purchase_orders?.po_number || cert.legacy_ref || "—"}
+            </p>
           </div>
-          {cert.document_incoming_scan?.file_name && (
-            <p className="text-sm text-gray-500">{cert.document_incoming_scan.file_name}</p>
+          <div>
+            <span className="text-gray-500">Project</span>
+            <p className="font-medium">{cert.legacy_project || "—"}</p>
+          </div>
+          <div>
+            <span className="text-gray-500">Date</span>
+            <p>{new Date(cert.created_at).toLocaleDateString("en-GB")}</p>
+          </div>
+        </div>
+
+        {items.length > 0 && (
+          <div className="text-sm">
+            <span className="text-gray-500">Material</span>
+            <p>
+              {items.map((i) => i.description).filter(Boolean).join(", ") || "—"}
+            </p>
+          </div>
+        )}
+
+        {/* PDF viewer */}
+        {pdfUrl ? (
+          <div className="space-y-2">
+            <div className="flex justify-end">
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pss-btn text-sm"
+              >
+                Download PDF
+              </a>
+            </div>
+            <iframe
+              src={pdfUrl}
+              className="w-full border rounded-lg"
+              style={{ height: "80vh" }}
+              title="Material Certificate PDF"
+            />
+          </div>
+        ) : (
+          <p className="text-gray-400">No document available</p>
+        )}
+      </div>
+    );
+  }
+
+  // PENDING VIEW — thumbnail + PO assignment
+  return (
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <PageHeader title="File Material Certificate" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: PDF thumbnail */}
+        <div>
+          {pdfUrl ? (
+            <div className="space-y-2">
+              <iframe
+                src={pdfUrl}
+                className="w-full border rounded-lg"
+                style={{ height: "400px" }}
+                title="Material Certificate PDF"
+              />
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-600 underline"
+              >
+                Open full size
+              </a>
+            </div>
+          ) : (
+            <div className="border rounded-lg p-12 text-center text-gray-400">
+              No document available
+            </div>
+          )}
+
+          {items.length > 0 && (
+            <div className="mt-4 text-sm">
+              <span className="text-gray-500">Material description</span>
+              <p className="mt-1">
+                {items.map((i) => i.description).filter(Boolean).join(", ") || "—"}
+              </p>
+            </div>
+          )}
+
+          {cert.legacy_ref && (
+            <div className="mt-2 text-sm">
+              <span className="text-gray-500">Legacy PO ref</span>
+              <p className="font-mono mt-1">{cert.legacy_ref}</p>
+            </div>
           )}
         </div>
 
-        {/* PO Assignment */}
-        <div className="border-t pt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Purchase Order</label>
-          <div className="flex gap-3">
-            <select
-              value={selectedPo}
-              onChange={(e) => setSelectedPo(e.target.value)}
-              className="flex-1 px-3 py-2 border rounded-lg"
-            >
-              <option value="">Select PO...</option>
-              {purchaseOrders.map((po) => (
-                <option key={po.id} value={po.id}>
-                  {po.po_number}
-                </option>
-              ))}
-            </select>
-            <button onClick={assignPo} className="pss-btn">
-              Assign
-            </button>
-          </div>
-          {cert.purchase_orders && (
-            <p className="mt-2 text-sm text-green-700">
-              Assigned to PO: <strong>{cert.purchase_orders.po_number}</strong>
+        {/* Right: PO assignment */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Assign Purchase Order</h2>
+
+          {/* Likely candidates */}
+          {candidates.length > 0 ? (
+            <div>
+              <p className="text-sm text-gray-500 mb-2">
+                Recent POs requiring material certificates:
+              </p>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b text-left">
+                      <th className="py-2 px-3">PO</th>
+                      <th className="py-2 px-3">Supplier</th>
+                      <th className="py-2 px-3">Project</th>
+                      <th className="py-2 px-3">Date</th>
+                      <th className="py-2 px-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidates.map((po) => (
+                      <tr
+                        key={po.id}
+                        className="border-b border-gray-50 hover:bg-blue-50"
+                      >
+                        <td className="py-2 px-3 font-mono">{po.po_number}</td>
+                        <td className="py-2 px-3 text-gray-600">
+                          {po.suppliers?.name || "—"}
+                        </td>
+                        <td className="py-2 px-3">
+                          {po.project_id
+                            ? `${po.project_id}${po.item_seq ? `-${po.item_seq}` : ""}`
+                            : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-gray-500">
+                          {new Date(po.created_at).toLocaleDateString("en-GB")}
+                        </td>
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={() => assignPo(po.id)}
+                            className="text-blue-600 hover:text-blue-800 font-medium text-xs"
+                          >
+                            Select
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              No recent POs with material certificates required
             </p>
           )}
-        </div>
 
-        {/* Confirm */}
-        {cert.status === "pending" && cert.po_id && (
+          {/* Divider */}
           <div className="border-t pt-4">
-            <button onClick={confirmCert} className="pss-btn">
-              Confirm Certificate
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Items */}
-      <div className="bg-white border rounded-lg p-6 space-y-4">
-        <h2 className="text-lg font-semibold">Material Items</h2>
-
-        {items.length > 0 ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 px-3">Description</th>
-                <th className="py-2 px-3">Job Cards</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const itemTracking = tracking.filter((t) => t.matl_cert_item_id === item.id);
-                return (
-                  <tr key={item.id} className="border-b border-gray-50">
-                    <td className="py-2 px-3">{item.description || "—"}</td>
-                    <td className="py-2 px-3 text-gray-600">
-                      {itemTracking.length > 0
-                        ? itemTracking.map((t) => t.jobcard_number).join(", ")
-                        : "None assigned"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-gray-400 text-sm">No items added yet</p>
-        )}
-
-        <div className="flex gap-3 pt-2">
-          <input
-            type="text"
-            placeholder="e.g. 150x75 PFC S355 J0"
-            value={newItemDesc}
-            onChange={(e) => setNewItemDesc(e.target.value)}
-            className="flex-1 px-3 py-2 border rounded-lg text-sm"
-            onKeyDown={(e) => e.key === "Enter" && addItem()}
-          />
-          <button onClick={addItem} className="pss-btn text-sm">
-            Add Item
-          </button>
-        </div>
-      </div>
-
-      {/* Tracking */}
-      {items.length > 0 && (
-        <div className="bg-white border rounded-lg p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Job Card Assignment</h2>
-          <div className="flex gap-3">
-            <select
-              value={selectedItemForTracking}
-              onChange={(e) => setSelectedItemForTracking(e.target.value)}
-              className="flex-1 px-3 py-2 border rounded-lg text-sm"
-            >
-              <option value="">Select material item...</option>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.description || item.id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              placeholder="Job card (1000-9999)"
-              value={newJobcard}
-              onChange={(e) => setNewJobcard(e.target.value)}
-              className="w-48 px-3 py-2 border rounded-lg text-sm"
-              min={1000}
-              max={9999}
-            />
-            <button onClick={addTracking} className="pss-btn text-sm">
-              Assign
-            </button>
+            {!showAllPOs ? (
+              <button
+                onClick={loadAllPOs}
+                className="text-sm text-blue-600 underline"
+              >
+                PO not listed? Choose from all purchase orders...
+              </button>
+            ) : (
+              <div className="flex gap-3">
+                <select
+                  value={selectedPo}
+                  onChange={(e) => setSelectedPo(e.target.value)}
+                  className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                >
+                  <option value="">Select PO...</option>
+                  {allPOs.map((po) => (
+                    <option key={po.id} value={po.id}>
+                      {po.po_number}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={assignFromDropdown}
+                  disabled={!selectedPo}
+                  className="pss-btn text-sm"
+                >
+                  Assign
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

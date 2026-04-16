@@ -26,7 +26,7 @@ import requests
 DOC_SERVICE_URL = os.environ.get("DOC_SERVICE_URL", "http://10.0.0.74:3000")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://hguvsjpmiyeypfcuvvko.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-NAS_BASE = r"\\pss-dc02\Document Store$"
+NAS_BASE = "//pss-dc02/Document Store$"
 POLL_INTERVAL = 2
 POLL_TIMEOUT = 60
 
@@ -91,7 +91,7 @@ def create_scan_row_with_override(file_name, file_path, period, po_ref):
     override = {
         "type_code": "X-MC",
         "doc_code": "MAT-CER",
-        "asset_code": None,
+        "asset_code": "RP-MAT-CER-001",
         "period": period,
         "skip_duplicate_check": True,
     }
@@ -180,7 +180,7 @@ def lookup_po(po_part):
     return None
 
 
-def update_cert(cert_id, description, po_ref):
+def update_cert(cert_id, description, po_ref, original_date=None):
     # Add item
     url = f"{SUPABASE_URL}/rest/v1/document_matl_cert_item"
     requests.post(url, json={"matl_cert_id": cert_id, "description": description}, headers=supabase_headers())
@@ -190,6 +190,10 @@ def update_cert(cert_id, description, po_ref):
 
     # Build update
     update = {"status": "confirmed", "legacy_ref": po_part, "legacy_project": proj_part}
+
+    # Preserve original date
+    if original_date:
+        update["created_at"] = original_date
 
     # Try to auto-link PO
     po = lookup_po(po_part)
@@ -205,6 +209,7 @@ def update_cert(cert_id, description, po_ref):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=4)
+    parser.add_argument("--skip", type=int, default=0, help="Skip first N certs")
     parser.add_argument("--dump", default="heroku_data.sql")
     args = parser.parse_args()
 
@@ -218,6 +223,8 @@ def main():
     docs = parse_copy(sql, "docstore_document")
     doc_map = {d["id"]: d for d in docs}
 
+    if args.skip > 0:
+        certs = certs[args.skip:]
     if args.limit > 0:
         certs = certs[:args.limit]
 
@@ -236,7 +243,7 @@ def main():
 
         rel_path = doc.get("document", "")
         file_name = rel_path.split("/")[-1] if "/" in rel_path else rel_path
-        nas_path = os.path.join(NAS_BASE, rel_path.replace("/", os.sep))
+        nas_path = NAS_BASE + "/" + rel_path
         description = cert.get("comment", "")
         if description in ("ADD COMMENT", "No Comments", ""):
             description = None
@@ -287,8 +294,9 @@ def main():
             continue
         print(f" -> {cert_record['id']}")
 
-        # Step 5: Add item + set legacy ref/project + try PO match + confirm
-        po_part, proj_part, po = update_cert(cert_record["id"], description, po_ref)
+        # Step 5: Add item + set legacy ref/project + original date + try PO match + confirm
+        original_date = cert.get("created")
+        po_part, proj_part, po = update_cert(cert_record["id"], description, po_ref, original_date)
         parts = []
         if po_part: parts.append(f"ref={po_part}")
         if proj_part: parts.append(f"proj={proj_part}")
