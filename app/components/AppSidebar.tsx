@@ -15,12 +15,6 @@ export function AppSidebar() {
             { label: "Library", href: "/matl-cert/" },
           ],
         },
-        {
-          heading: "Traceability",
-          items: [
-            { label: "Search", href: "/matl-cert/search/" },
-          ],
-        },
       ]}
       userSlot={<SidebarUser />}
     />

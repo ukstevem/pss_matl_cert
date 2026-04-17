@@ -9,6 +9,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 const DOC_SERVICE_URL =
   process.env.NEXT_PUBLIC_DOC_SERVICE_URL || "http://10.0.0.74:3000";
 
+const PAGE_SIZE = 20;
+
 interface CertRow {
   id: string;
   status: string;
@@ -35,89 +37,122 @@ interface CertRow {
 function CertTable({
   certs,
   emptyMessage,
+  maxHeight,
 }: {
   certs: CertRow[];
   emptyMessage: string;
+  maxHeight?: string;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="border-b-2 border-gray-200 text-left">
-            <th className="py-3 px-4 font-semibold">Date</th>
-            <th className="py-3 px-4 font-semibold">PO</th>
-            <th className="py-3 px-4 font-semibold">Project</th>
-            <th className="py-3 px-4 font-semibold">Items</th>
-            <th className="py-3 px-4 font-semibold">Document</th>
-          </tr>
-        </thead>
-        <tbody>
-          {certs.map((cert) => (
-            <tr
-              key={cert.id}
-              className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-              onClick={() =>
-                (window.location.href = `/matl-cert/cert/${cert.id}/`)
-              }
-            >
-              <td className="py-3 px-4 text-gray-600">
-                {new Date(cert.created_at).toLocaleDateString("en-GB")}
-              </td>
-              <td className="py-3 px-4 font-mono">
-                {cert.purchase_orders?.po_number || (
-                  cert.legacy_ref ? (
+    <div
+      className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+    >
+      <div
+        className="overflow-auto"
+        style={{ maxHeight: maxHeight || "auto" }}
+      >
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 z-10">
+            <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+              <th className="py-3 px-4 font-medium">Date</th>
+              <th className="py-3 px-4 font-medium">PO</th>
+              <th className="py-3 px-4 font-medium">Document</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {certs.map((cert) => (
+              <tr
+                key={cert.id}
+                className="hover:bg-blue-50/50 cursor-pointer transition-colors"
+                onClick={() =>
+                  (window.location.href = `/matl-cert/cert/${cert.id}/`)
+                }
+              >
+                <td className="py-3 px-4 text-gray-600 whitespace-nowrap">
+                  {new Date(cert.created_at).toLocaleDateString("en-GB")}
+                </td>
+                <td className="py-3 px-4 font-mono whitespace-nowrap">
+                  {cert.purchase_orders?.po_number ? (
+                    <span className="text-blue-700 font-medium">
+                      {cert.purchase_orders.po_number}
+                    </span>
+                  ) : cert.legacy_ref ? (
                     <span className="text-gray-400" title="Legacy PO ref">
                       {cert.legacy_ref}
                     </span>
                   ) : (
-                    "—"
-                  )
-                )}
-              </td>
-              <td className="py-3 px-4">
-                {cert.purchase_orders?.project_register_items
-                  ? `${cert.purchase_orders.project_register_items.projectnumber}-${cert.purchase_orders.project_register_items.item_seq}`
-                  : cert.legacy_project
-                    ? (
-                        <span className="text-gray-400" title="Legacy project">
-                          {cert.legacy_project}
-                        </span>
-                      )
-                    : "—"}
-              </td>
-              <td className="py-3 px-4">
-                {cert.document_matl_cert_item?.length || 0} item(s)
-                {cert.document_matl_cert_item?.[0]?.description && (
-                  <span className="text-gray-400 ml-2">
-                    — {cert.document_matl_cert_item[0].description}
-                  </span>
-                )}
-              </td>
-              <td className="py-3 px-4 text-gray-500 text-xs truncate max-w-[200px]">
-                {cert.document_incoming_scan?.filed_path?.split("/").pop() ||
-                  cert.document_incoming_scan?.file_name ||
-                  "—"}
-              </td>
-            </tr>
-          ))}
-          {certs.length === 0 && (
-            <tr>
-              <td colSpan={5} className="py-6 text-center text-gray-400">
-                {emptyMessage}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                    <span className="text-gray-300">—</span>
+                  )}
+                </td>
+                <td className="py-3 px-4 text-sm text-gray-600">
+                  {cert.document_incoming_scan?.filed_path
+                    ?.split("/")
+                    .pop()
+                    ?.replace(".pdf", "") || "—"}
+                </td>
+              </tr>
+            ))}
+            {certs.length === 0 && (
+              <tr>
+                <td
+                  colSpan={3}
+                  className="py-10 text-center text-gray-400"
+                >
+                  {emptyMessage}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <p className="text-sm text-gray-500">
+        Page {page} of {totalPages}
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+        >
+          Previous
+        </button>
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }
 
 export default function CertLibrary() {
   const { user, loading: authLoading } = useAuth();
-  const [certs, setCerts] = useState<CertRow[]>([]);
+  const [pendingCerts, setPendingCerts] = useState<CertRow[]>([]);
+  const [filedCerts, setFiledCerts] = useState<CertRow[]>([]);
+  const [filedCount, setFiledCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filedPage, setFiledPage] = useState(1);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -125,33 +160,73 @@ export default function CertLibrary() {
 
   useEffect(() => {
     if (!user) return;
-    loadCerts();
+    loadPending();
   }, [user]);
 
-  async function loadCerts() {
-    setLoading(true);
-    const { data, error } = await supabase
+  useEffect(() => {
+    if (!user) return;
+    loadFiled();
+  }, [user, filedPage, search]);
+
+  async function loadPending() {
+    const { data, count } = await supabase
       .from("document_matl_cert")
       .select(
-        `
-        id, status, created_at, legacy_ref, legacy_project,
+        `id, status, created_at, legacy_ref, legacy_project,
         purchase_orders ( po_number, project_register_items ( projectnumber, item_seq ) ),
         document_incoming_scan ( file_name, filed_path ),
-        document_matl_cert_item ( id, description )
-      `
+        document_matl_cert_item ( id, description )`,
+        { count: "exact" }
       )
-      .order("created_at", { ascending: false })
-      .limit(500);
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
 
-    if (!error && data) setCerts(data as unknown as CertRow[]);
+    if (data) setPendingCerts(data as unknown as CertRow[]);
+    if (count !== null) setPendingCount(count);
+  }
+
+  async function loadFiled() {
+    setLoading(true);
+    const from = (filedPage - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let query = supabase
+      .from("document_matl_cert")
+      .select(
+        `id, status, created_at, legacy_ref, legacy_project,
+        purchase_orders ( po_number, project_register_items ( projectnumber, item_seq ) ),
+        document_incoming_scan ( file_name, filed_path ),
+        document_matl_cert_item ( id, description )`,
+        { count: "exact" }
+      )
+      .eq("status", "confirmed")
+      .order("created_at", { ascending: false });
+
+    // Server-side search using ilike on legacy_ref
+    if (search) {
+      query = query.or(
+        `legacy_ref.ilike.%${search}%,legacy_project.ilike.%${search}%`
+      );
+    }
+
+    const { data, count } = await query.range(from, to);
+
+    if (data) setFiledCerts(data as unknown as CertRow[]);
+    if (count !== null) setFiledCount(count);
     setLoading(false);
   }
+
+  // Reset page when search changes
+  useEffect(() => {
+    setFiledPage(1);
+  }, [search]);
 
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
       const pdfs = Array.from(files).filter(
         (f) =>
-          f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
+          f.type === "application/pdf" ||
+          f.name.toLowerCase().endsWith(".pdf")
       );
       if (pdfs.length === 0) return;
 
@@ -164,19 +239,21 @@ export default function CertLibrary() {
         try {
           const formData = new FormData();
           formData.append("file", file);
-          const uploadResp = await fetch(`${DOC_SERVICE_URL}/api/scan/upload`, {
-            method: "POST",
-            body: formData,
-          });
-          if (!uploadResp.ok) throw new Error(`Upload failed: ${uploadResp.status}`);
+          const uploadResp = await fetch(
+            `${DOC_SERVICE_URL}/api/scan/upload`,
+            { method: "POST", body: formData }
+          );
+          if (!uploadResp.ok)
+            throw new Error(`Upload failed: ${uploadResp.status}`);
           const uploadData = await uploadResp.json();
-          const filePath = uploadData.path || uploadData.filePath || file.name;
+          const filePath =
+            uploadData.path || uploadData.filePath || file.name;
 
           const override = {
             type_code: "X-MC",
             doc_code: "MAT-CER",
             asset_code: "RP-MAT-CER-001",
-            skip_duplicate_check: false,
+            skip_duplicate_check: true,
           };
 
           const { error: scanError } = await supabase
@@ -200,69 +277,58 @@ export default function CertLibrary() {
         `${success} uploaded${failed > 0 ? `, ${failed} failed` : ""}. Certificates will appear in Pending once filed.`
       );
       setUploading(false);
-
-      // Reload after a delay to pick up new certs
-      setTimeout(() => loadCerts(), 10000);
+      setTimeout(() => loadPending(), 10000);
     },
     [user]
   );
 
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-500">Loading...</p>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <p className="text-gray-400">Loading...</p>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6">
-        <h1
-          className="text-2xl font-semibold"
-          style={{ color: "var(--pss-navy)" }}
-        >
+      <div className="flex flex-col items-center justify-center min-h-screen gap-6 bg-gray-50">
+        <h1 className="text-2xl font-semibold text-gray-800">
           Material Certificates
         </h1>
-        <p className="text-gray-600">Sign in to continue</p>
+        <p className="text-gray-500">Sign in to continue</p>
         <AuthButton redirectTo="/matl-cert/" />
       </div>
     );
   }
 
-  const filtered = certs.filter((c) => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    const po = c.purchase_orders?.po_number?.toLowerCase() || "";
-    const legacyPo = c.legacy_ref?.toLowerCase() || "";
-    const legacyProj = c.legacy_project?.toLowerCase() || "";
-    const desc =
-      c.document_matl_cert_item?.[0]?.description?.toLowerCase() || "";
-    const file =
-      c.document_incoming_scan?.filed_path?.split("/").pop()?.toLowerCase() ||
-      "";
-    return (
-      po.includes(s) ||
-      legacyPo.includes(s) ||
-      legacyProj.includes(s) ||
-      desc.includes(s) ||
-      file.includes(s)
-    );
-  });
-
-  const pending = filtered.filter((c) => c.status === "pending");
-  const filed = filtered.filter((c) => c.status === "confirmed");
+  const filedTotalPages = Math.ceil(filedCount / PAGE_SIZE);
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-8">
-      <PageHeader title="Material Certificate Library" />
+    <div className="p-6 max-w-6xl mx-auto space-y-6 bg-gray-50 min-h-screen">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-800">
+          Material Certificates
+        </h1>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            {pendingCount} pending
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            {filedCount} filed
+          </span>
+        </div>
+      </div>
 
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
           dragOver
-            ? "border-blue-500 bg-blue-50"
-            : "border-gray-300 hover:border-gray-400"
+            ? "border-blue-400 bg-blue-50 scale-[1.01]"
+            : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -288,73 +354,70 @@ export default function CertLibrary() {
           }}
         />
         {uploading ? (
-          <p className="text-blue-600">Uploading...</p>
+          <p className="text-blue-600 font-medium">Uploading...</p>
         ) : (
           <>
-            <p className="text-gray-500">
-              Drop material certificate PDFs here or click to browse
+            <p className="text-gray-600 font-medium">
+              Drop material certificate PDFs here
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              Files are filed automatically via the document service
+              or click to browse — files are filed automatically
             </p>
           </>
         )}
       </div>
 
       {uploadMessage && (
-        <p className="text-sm text-green-700 bg-green-50 p-3 rounded-lg">
+        <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
           {uploadMessage}
-        </p>
+        </div>
       )}
 
-      {/* Search */}
-      <div className="flex gap-4 items-center">
-        <input
-          type="text"
-          placeholder="Search by PO, project, description, or file name..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+      {/* Pending section */}
+      {pendingCerts.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-600 mb-2 flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            Pending — needs PO assignment ({pendingCount})
+          </h2>
+          <CertTable
+            certs={pendingCerts}
+            emptyMessage="No pending certificates"
+            maxHeight="300px"
+          />
+        </div>
+      )}
+
+      {/* Filed section */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-emerald-600 flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            Filed ({filedCount})
+          </h2>
+          <input
+            type="text"
+            placeholder="Search PO, project, description..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg w-72 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white"
+          />
+        </div>
+        <CertTable
+          certs={filedCerts}
+          emptyMessage={
+            search
+              ? "No certificates match your search"
+              : "No filed certificates"
+          }
+          maxHeight="60vh"
         />
-        <span className="text-sm text-gray-500">
-          {pending.length} pending, {filed.length} filed
-        </span>
+        <Pagination
+          page={filedPage}
+          totalPages={filedTotalPages}
+          onPageChange={setFiledPage}
+        />
       </div>
-
-      {loading ? (
-        <p className="text-gray-500">Loading certificates...</p>
-      ) : (
-        <>
-          {/* Pending section */}
-          {pending.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full bg-amber-400"></span>
-                Pending — needs PO assignment
-                <span className="text-sm font-normal text-gray-400">
-                  ({pending.length})
-                </span>
-              </h2>
-              <CertTable
-                certs={pending}
-                emptyMessage="No pending certificates"
-              />
-            </div>
-          )}
-
-          {/* Filed section */}
-          <div>
-            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded-full bg-green-500"></span>
-              Filed
-              <span className="text-sm font-normal text-gray-400">
-                ({filed.length})
-              </span>
-            </h2>
-            <CertTable certs={filed} emptyMessage="No filed certificates" />
-          </div>
-        </>
-      )}
     </div>
   );
 }
