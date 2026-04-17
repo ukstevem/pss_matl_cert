@@ -5,6 +5,7 @@ services:
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_DOC_SERVICE_URL: ${NEXT_PUBLIC_DOC_SERVICE_URL}
     ports:
       - "3010:3000"
     restart: unless-stopped
