@@ -14,6 +14,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import shutil
 import argparse
@@ -99,11 +100,32 @@ def main():
     print(f"Processing: {len(all_certs)}")
     print()
 
-    # Track sequence numbers per period
+    # Track sequence numbers per period.
+    # Seed from existing filed_paths so re-runs (batched or otherwise) don't
+    # collide with earlier runs or manual uploads. Without this, the counter
+    # restarts at 1 every run and overwrites prior files of the same period.
     seq_counter = defaultdict(int)
-
-    # Pre-scan existing files to start sequence after any existing ones
-    # (e.g. the one uploaded manually is _001)
+    seed_rx = re.compile(r"X-MC_MAT-CER_(\d{4}-W\d{2})_(\d+)\.pdf$")
+    print("Seeding sequence counters from existing filed_paths...")
+    seed_offset = 0
+    while True:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/document_incoming_scan"
+            f"?select=filed_path&filed_path=like.*X-MC_MAT-CER*"
+            f"&limit=500&offset={seed_offset}",
+            headers=headers(),
+        )
+        seed_rows = resp.json()
+        if not seed_rows:
+            break
+        for row in seed_rows:
+            m = seed_rx.search(row.get("filed_path") or "")
+            if m:
+                period, seq = m.group(1), int(m.group(2))
+                if seq > seq_counter[period]:
+                    seq_counter[period] = seq
+        seed_offset += 500
+    print(f"Seeded {len(seq_counter)} periods (next seq per period starts at max+1)")
 
     success = 0
     failed = 0
