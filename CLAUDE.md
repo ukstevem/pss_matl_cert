@@ -50,7 +50,10 @@ pss-matl-cert/
 │   ├── 007_rename_legacy_ref.sql
 │   ├── 008_add_legacy_project.sql
 │   ├── transform.py            # Heroku dump to Supabase INSERT converter
-│   └── migrate_certs.py        # Bulk migration via document service pipeline
+│   ├── migrate_certs.py        # Bulk migration via document service pipeline
+│   ├── reimport_certs.py       # NAS-direct PDF re-file (bypass doc service upload/download)
+│   ├── reimport_thumbnails.py  # Copy legacy thumbnails from //pss-dc02/Document Store$/Thumbs
+│   └── fix_w02_collisions.py   # One-off: recover overwritten W02 certs (see Incident Log)
 ├── docker-compose.yml          # Standalone docker-compose
 └── CLAUDE.md
 ```
@@ -167,6 +170,51 @@ PO ref parsing:
 - `JC000879-W006` → legacy_ref=`JC000879`, legacy_project=`0006` (W prefix stripped)
 - `JC002883-STOCK` → legacy_ref=`JC002883`, legacy_project=`0006`
 - `006044-10263` → legacy_ref=`006044`, legacy_project=`10263` (auto-links PO if match)
+
+## Reimport & Recovery
+
+After the initial `migrate_certs.py` run, the filed PDF names were only period-based
+(`X-MC_MAT-CER_YYYY-Wnn.pdf`, no per-cert sequence), so certs sharing a period overwrote
+each other on the NAS. `reimport_certs.py` was written to repair this by re-filing each
+PDF directly on the NAS with a per-period sequence suffix (`_001`, `_002`, …) and
+PATCHing `document_incoming_scan.filed_path`.
+
+### Incident: batched reimport caused 6 collisions
+
+`reimport_certs.py` originally reset its per-period sequence counter on every run. It
+was invoked as `--limit 5` (test) then `--skip 5 --limit 0` (full), so both runs wrote
+to `W02_001..005.pdf`. Last write wins, so certs `MQC-001..005` had their PDF content
+overwritten by `MQC-006..010`, and two scans pointed at each of those 5 paths. A
+separate modern upload (`Your Order 006820-10305...`) was also stranded on
+`2026-W16_001.pdf` on top of a reimport-filed cert.
+
+Resolved in this repo by:
+
+1. **`fix_w02_collisions.py`** — relocated `MQC-001..005` to fresh slots `W02_006..010`,
+   size-verified each on-disk file against the "keeper" source before writing.
+2. **`reimport_thumbnails.py --limit 0`** — backfilled 1,434 thumbnails from
+   `//pss-dc02/Document Store$/Thumbs/<stem>.jpg`, writing `<filed_stem>.thumb.jpg`
+   next to each filed PDF and updating `scan.thumbnail_path`.
+3. The stranded `Your Order…` upload was copied out of `//pss-dc02/cad_iot/documents/quarantine/`
+   to a unique `W16_007` slot (PDF + existing `.thumb.png`).
+4. **`reimport_certs.py` now seeds `seq_counter` from existing `filed_path` values in
+   the DB before processing** so re-runs (batched or otherwise) cannot collide with
+   prior runs or manual uploads.
+
+### How to audit
+
+Run this against Supabase to check for any duplicate `filed_path` across cert scans:
+
+```sql
+select s.filed_path, count(*)
+from document_matl_cert c
+join document_incoming_scan s on s.id = c.scan_id
+group by s.filed_path
+having count(*) > 1;
+```
+
+Current expected result: **0 rows**. Cert count: **1,435**, all with unique `filed_path`
+and a `thumbnail_path` set.
 
 ## Key Design Decisions
 
