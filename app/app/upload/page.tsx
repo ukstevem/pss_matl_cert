@@ -66,7 +66,7 @@ export default function UploadCerts() {
         const override = {
           type_code: "X-MC",
           doc_code: "MAT-CER",
-          asset_code: null,
+          subject_code: null,
           skip_duplicate_check: false,
         };
 

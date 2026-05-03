@@ -252,7 +252,7 @@ export default function CertLibrary() {
           const override = {
             type_code: "X-MC",
             doc_code: "MAT-CER",
-            asset_code: "RP-MAT-CER-001",
+            subject_code: "RP-MAT-CER-001",
             skip_duplicate_check: true,
           };
 
