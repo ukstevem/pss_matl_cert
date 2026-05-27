@@ -5,7 +5,8 @@ export interface ProjectCert {
   id: string;
   created_at: string;
   legacy_ref: string | null;
-  po_number: string | null;
+  // po_number is stored as an integer in purchase_orders.
+  po_number: string | number | null;
   project_id: string | null;
   item_seq: string | null;
   file_name: string | null;
@@ -17,7 +18,7 @@ interface RawRow {
   created_at: string;
   legacy_ref: string | null;
   purchase_orders: {
-    po_number: string | null;
+    po_number: string | number | null;
     project_id: string | null;
     item_seq: string | null;
   } | null;
@@ -77,7 +78,7 @@ export async function fetchProjectCerts(
  */
 export function packEntryName(cert: ProjectCert, index: number): string {
   const seq = String(index + 1).padStart(3, "0");
-  const ref = (cert.po_number || cert.legacy_ref || "cert").replace(
+  const ref = String(cert.po_number ?? cert.legacy_ref ?? "cert").replace(
     /[^A-Za-z0-9_-]+/g,
     "-"
   );
