@@ -13,6 +13,7 @@ export function AppSidebar() {
           heading: "Certificates",
           items: [
             { label: "Library", href: "/matl-cert/" },
+            { label: "Project Pack", href: "/matl-cert/project-pack/" },
           ],
         },
       ]}
